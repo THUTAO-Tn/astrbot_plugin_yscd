@@ -1,10 +1,10 @@
 name: astrbot_plugin_yscd
 display_name: 原神兑换码
 short_desc: 原神国服兑换码查询 + 新码自动推送
-desc: 查询原神（国服）兑换码：BetterGI 兑换码仓库 + 米游社官方前瞻直播双源，自动过滤国际服英文码；新码主动推送到用过 /yscd 的会话，群聊不 @ 所有人。
+desc: 查询原神（国服）兑换码：BetterGI 兑换码仓库 + 米游社官方前瞻直播双源，自动过滤国际服英文码；新码主动推送到用过 /yscd 的会话
 version: v1.0.0
-author: DSH
-repo: https://github.com/your-name/astrbot_plugin_yscd
+author: 桃薰
+repo: https://github.com/THUTAO-Tn/astrbot_plugin_yscd
 astrbot_version: ">=4.0.0"
 support_platforms:
   - aiocqhttp
