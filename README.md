@@ -1,4 +1,4 @@
-# 原神兑换码（astrbot_plugin_genshin_codes）
+# 原神兑换码（astrbot_plugin_yscd）
 
 AstrBot 插件：查询**原神国服**兑换码，并在出现**新兑换码时主动推送**给用过 `/yscd` 的会话。
 
@@ -10,18 +10,18 @@ AstrBot 插件：查询**原神国服**兑换码，并在出现**新兑换码时
 
 ## 一、功能
 
-| 能力 | 说明 |
-| --- | --- |
-| 查询兑换码 | `/yscd` 输出当前所有有效兑换码 |
-| 自动订阅 | 发过一次 `/yscd`，该私聊/群聊就默认订阅推送（可在配置中关闭） |
-| 新码推送 | 后台按配置间隔轮询，发现新兑换码主动推送 |
-| 群聊直接发 | 推送直接发到群里，不 @ 所有人，也不需要群里谁再单独订阅 |
-| 手动订阅/退订 | `/yscd sub`、`/yscd unsub` |
-| 手动刷新 | `/yscd refresh` 立即拉取数据源 |
-| 过期过滤 | 已知过期日期的兑换码自动从列表隐藏 |
-| 方便复制 | 兑换码本体单独成行，长按即可复制；可开启 Markdown 代码块适配可点击复制的平台 |
+| 能力          | 说明                                                                         |
+| ------------- | ---------------------------------------------------------------------------- |
+| 查询兑换码    | `/yscd` 输出当前所有有效兑换码                                               |
+| 自动订阅      | 发过一次 `/yscd`，该私聊/群聊就默认订阅推送（可在配置中关闭）                |
+| 新码推送      | 后台按配置间隔轮询，发现新兑换码主动推送                                     |
+| 群聊直接发    | 推送直接发到群里，不 @ 所有人，也不需要群里谁再单独订阅                      |
+| 手动订阅/退订 | `/yscd sub`、`/yscd unsub`                                                   |
+| 手动刷新      | `/yscd refresh` 立即拉取数据源                                               |
+| 过期过滤      | 已知过期日期的兑换码自动从列表隐藏                                           |
+| 方便复制      | 兑换码本体单独成行，长按即可复制；可开启 Markdown 代码块适配可点击复制的平台 |
 
-输出格式（按需求）：
+输出格式：
 
 ```
 🎁 原神国服兑换码 · 共 4 个有效
@@ -62,18 +62,16 @@ AstrBot 插件：查询**原神国服**兑换码，并在出现**新兑换码时
 
 ## 二、安装
 
-1. 把 `astrbot_plugin_genshin_codes` 文件夹放到 AstrBot 的 `data/plugins/` 下：
+1. 把 `astrbot_plugin_yscd-v1.0.0` 文件夹整个放到 AstrBot 的 `data/plugins/` 下：
 
    ```
-   AstrBot/data/plugins/astrbot_plugin_genshin_codes/
+   AstrBot/data/plugins/astrbot_plugin_yscd-v1.0.0/
    ├── main.py
    ├── metadata.yaml
    ├── _conf_schema.json
    ├── requirements.txt
    └── README.md
    ```
-
-   也可以直接用仓库里的 `astrbot_plugin_genshin_codes-v1.0.0.zip` 在 WebUI「插件 → 安装插件」里上传。
 
 2. 在 WebUI「插件」页刷新/重载，或重启 AstrBot。
 3. 依赖 `httpx`（AstrBot 本体自带）；若提示缺少模块：
@@ -87,13 +85,13 @@ AstrBot 插件：查询**原神国服**兑换码，并在出现**新兑换码时
 
 ## 三、指令
 
-| 指令 | 作用 |
-| --- | --- |
-| `/yscd` | 查看有效兑换码；同时（默认）自动订阅新码推送 |
-| `/yscd sub` | 订阅推送 |
-| `/yscd unsub` | 取消订阅 |
-| `/yscd refresh` | 立即刷新数据源再输出 |
-| `/yscd help` | 帮助 |
+| 指令            | 作用                                         |
+| --------------- | -------------------------------------------- |
+| `/yscd`         | 查看有效兑换码；同时（默认）自动订阅新码推送 |
+| `/yscd sub`     | 订阅推送                                     |
+| `/yscd unsub`   | 取消订阅                                     |
+| `/yscd refresh` | 立即刷新数据源再输出                         |
+| `/yscd help`    | 帮助                                         |
 
 兑换地址：<https://ys.mihoyo.com/main/gift>
 
@@ -101,19 +99,19 @@ AstrBot 插件：查询**原神国服**兑换码，并在出现**新兑换码时
 
 ## 四、配置项（WebUI → 插件 → 原神兑换码 → 配置）
 
-| 配置 | 默认 | 说明 |
-| --- | --- | --- |
-| `enable_miyoushe_source` | 开 | 启用米游社官方公告源（国内网络推荐） |
-| `enable_ennead_source` | 开 | 启用社区聚合源（补全兑换码/奖励，兜底） |
-| `enable_auto_push` | 开 | 是否后台轮询并推送 |
-| `auto_subscribe` | 开 | 发过 `/yscd` 是否自动订阅 |
-| `fetch_interval_minutes` | 30 | 轮询间隔（分钟，最小 5） |
-| `cache_ttl_minutes` | 10 | 查询缓存时间（分钟） |
-| `max_codes_display` | 12 | 单次最多展示个数 |
-| `max_push_codes` | 5 | 单次推送最多包含的新码个数 |
-| `use_code_block` | 关 | 兑换码用 Markdown 代码块包裹（可点击复制的平台可开） |
-| `http_timeout` | 15 | 请求超时（秒） |
-| `proxy` | 空 | HTTP 代理，如 `http://127.0.0.1:7890` |
+| 配置                     | 默认 | 说明                                                 |
+| ------------------------ | ---- | ---------------------------------------------------- |
+| `enable_miyoushe_source` | 开   | 启用米游社官方公告源（国内网络推荐）                 |
+| `enable_ennead_source`   | 开   | 启用社区聚合源（补全兑换码/奖励，兜底）              |
+| `enable_auto_push`       | 开   | 是否后台轮询并推送                                   |
+| `auto_subscribe`         | 开   | 发过 `/yscd` 是否自动订阅                            |
+| `fetch_interval_minutes` | 30   | 轮询间隔（分钟，最小 5）                             |
+| `cache_ttl_minutes`      | 10   | 查询缓存时间（分钟）                                 |
+| `max_codes_display`      | 12   | 单次最多展示个数                                     |
+| `max_push_codes`         | 5    | 单次推送最多包含的新码个数                           |
+| `use_code_block`         | 关   | 兑换码用 Markdown 代码块包裹（可点击复制的平台可开） |
+| `http_timeout`           | 15   | 请求超时（秒）                                       |
+| `proxy`                  | 空   | HTTP 代理，如 `http://127.0.0.1:7890`                |
 
 ---
 
@@ -135,7 +133,7 @@ AstrBot 插件：查询**原神国服**兑换码，并在出现**新兑换码时
 ### 订阅与推送
 
 - 订阅键是 AstrBot 的 `unified_msg_origin`（会话唯一 ID），持久化在
-  `data/plugin_data/astrbot_plugin_genshin_codes/state.json`。
+  `data/plugin_data/astrbot_plugin_yscd/state.json`。
 - 后台任务在 `initialize()` 启动、`terminate()` 取消，热重载不会残留任务。
 - **首次加载只入库不推送**（历史兑换码不会刷屏）；之后每次多出来的码才推送。
 - 推送只用纯文本，链里没有 `At` / `AtAll`，所以群里不会出现 @所有人；
@@ -161,18 +159,14 @@ AstrBot 目前的消息组件里没有「复制到剪贴板」类型的按钮（
 - 米游社公告偶尔把兑换码放在图片里，这种情况解析不到，只能靠聚合源补全；
   公告没写有效期时显示「未知」，不会猜日期。
 - 第三方公开接口若被官方调整可能失效，更新解析逻辑即可；插件已做异常降级，不会因此崩溃。
-- 数据只保存在 `data/plugin_data/astrbot_plugin_genshin_codes/`，重装插件不会丢；
+- 数据只保存在 `data/plugin_data/astrbot_plugin_yscd/`，重装插件不会丢；
   需要彻底重置时删掉该目录。
 
 ---
 
-## 七、开发与自测
+## 七、排错
 
-仓库根的 `_test/` 目录里有一个**不依赖 AstrBot 本体**的离线自测：
-用桩模块替换 `astrbot.api`，覆盖文本解析、有效期解析、奖励中文化、
-首刷不推送、新码推送、去重、退订、持久化、数据源降级、生命周期等 40+ 项检查。
-
-```bash
-python _test/build_stub.py
-python _test/test_plugin.py
-```
+- 查不到码：先看 AstrBot 日志里有没有 `[astrbot_plugin_yscd] ... 拉取失败`，
+  多半是网络/接口波动；可在配置里关掉其中一个源单独试。
+- 想重置订阅和缓存：停用插件后删掉 `data/plugin_data/astrbot_plugin_yscd/`。
+- 想调快/调慢推送：改 `fetch_interval_minutes` 后重载插件即可生效。

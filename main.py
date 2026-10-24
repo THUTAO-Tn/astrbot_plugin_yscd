@@ -33,7 +33,7 @@ from astrbot.api import AstrBotConfig, logger
 from astrbot.api.event import AstrMessageEvent, MessageChain, filter
 from astrbot.api.star import Context, Star, register
 
-PLUGIN_NAME = "astrbot_plugin_genshin_codes"
+PLUGIN_NAME = "astrbot_plugin_yscd"
 
 # AstrBot 的 data 目录（插件持久化数据必须放在 data 下，避免更新插件时丢失）
 try:  # pragma: no cover - 依赖 AstrBot 运行时
@@ -179,7 +179,7 @@ class GenshinCodesPlugin(Star):
         self._client = self._build_client()
         if self._cfg_bool("enable_auto_push", True):
             self._poll_task = asyncio.create_task(
-                self._poll_loop(), name="genshin-codes-poller"
+                self._poll_loop(), name="yscd-poller"
             )
             logger.info(f"[{PLUGIN_NAME}] 后台兑换码轮询已启动")
 
