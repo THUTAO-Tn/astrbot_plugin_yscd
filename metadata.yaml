@@ -1,0 +1,20 @@
+name: astrbot_plugin_genshin_codes
+display_name: 原神兑换码
+short_desc: 原神国服兑换码查询 + 新码自动推送
+desc: 查询原神（国服）兑换码（米游社官方公告 + 社区聚合源），发现新兑换码时主动推送到使用过 /yscd 的会话；兑换码单独成行方便复制。
+version: v1.0.0
+author: DSH
+repo: https://github.com/your-name/astrbot_plugin_genshin_codes
+astrbot_version: ">=4.0.0"
+support_platforms:
+  - aiocqhttp
+  - qq_official
+  - qq_official_webhook
+  - telegram
+  - lark
+  - dingtalk
+  - discord
+  - wecom
+  - slack
+  - kook
+  - satori

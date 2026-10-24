@@ -1,0 +1,91 @@
+{
+  "enable_miyoushe_source": {
+    "description": "启用米游社官方公告数据源",
+    "type": "bool",
+    "hint": "抓取米游社国服官方公告，解析前瞻直播/活动公告里的兑换码和有效期。国内网络推荐开启。",
+    "default": true
+  },
+  "enable_ennead_source": {
+    "description": "启用社区聚合数据源",
+    "type": "bool",
+    "hint": "BetterGI 等工具常用的兑换码聚合接口，用于补全兑换码与奖励信息。米游社源不可用时可作为兜底。",
+    "default": true
+  },
+  "enable_auto_push": {
+    "description": "启用后台轮询与新码推送",
+    "type": "bool",
+    "hint": "关闭后只保留 /yscd 手动查询，不再主动推送新兑换码。",
+    "default": true
+  },
+  "auto_subscribe": {
+    "description": "查询后自动订阅推送",
+    "type": "bool",
+    "hint": "开启时，用户发送一次 /yscd 就自动订阅新兑换码推送（群聊会直接把消息发到群里，不会 @ 所有人）。",
+    "default": true
+  },
+  "fetch_interval_minutes": {
+    "description": "轮询间隔（分钟）",
+    "type": "int",
+    "hint": "后台多久检查一次是否有新兑换码，建议 15~60 分钟。",
+    "default": 30,
+    "slider": {
+      "min": 5,
+      "max": 180,
+      "step": 5
+    }
+  },
+  "cache_ttl_minutes": {
+    "description": "查询缓存时间（分钟）",
+    "type": "int",
+    "hint": "用户查询时，距上次刷新不超过该时间就直接用缓存，避免频繁请求接口。",
+    "default": 10,
+    "slider": {
+      "min": 1,
+      "max": 60,
+      "step": 1
+    }
+  },
+  "max_codes_display": {
+    "description": "单次最多展示的兑换码数量",
+    "type": "int",
+    "default": 12,
+    "slider": {
+      "min": 1,
+      "max": 30,
+      "step": 1
+    }
+  },
+  "max_push_codes": {
+    "description": "单次推送最多包含的新兑换码数量",
+    "type": "int",
+    "hint": "一次出现很多新码时，只推送前几个，其余提示用户发送 /yscd 查看。",
+    "default": 5,
+    "slider": {
+      "min": 1,
+      "max": 20,
+      "step": 1
+    }
+  },
+  "use_code_block": {
+    "description": "兑换码使用 Markdown 代码块",
+    "type": "bool",
+    "hint": "在支持 Markdown 的平台（QQ 官方机器人 Markdown、Telegram 等）上，代码块可点击复制；普通文本平台建议关闭。",
+    "default": false
+  },
+  "http_timeout": {
+    "description": "HTTP 请求超时（秒）",
+    "type": "int",
+    "default": 15,
+    "slider": {
+      "min": 5,
+      "max": 60,
+      "step": 1
+    }
+  },
+  "proxy": {
+    "description": "HTTP 代理（可选）",
+    "type": "string",
+    "hint": "如 http://127.0.0.1:7890。米游社接口在国内通常直连即可，留空表示不使用代理。",
+    "default": ""
+  }
+}
