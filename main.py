@@ -8,10 +8,16 @@
 5. `/yscd help`     查看帮助
 
 数据源（只取国服）：
-- 米游社国服官方公告 / 前瞻直播资讯（api-takumi.miyoushe.com）。
-  国服兑换码现在很多是中文短语（如「千星奇域一起拍拍拍」），国际服的英文码
-  （hourofruin / expertmitya / phototime 这类）国服不可用，插件不会采用。
-- 管理员可在配置里补录兑换码（公告没写或解析不到时兜底）。
+1. BetterGI 兑换码仓库 codes.json
+   https://cnb.cool/bettergi/genshin-redeem-code/-/git/raw/main/codes.json
+   该文件同时收录国服与国际服条目，国际服条目标题带「[国际服]」前缀
+   （HourofRuin / ExpertMitya / PhotoTime 这类英文码国服不可用），插件会过滤掉。
+2. 米游社官方前瞻直播接口（miyolive），作为前瞻码的补充源：
+   getForumPostList 找前瞻帖 → 取 act_id → miyolive/index 取 code_ver →
+   refreshCode 取 code_list（含代码与奖励）。
+
+国服兑换码现在多是中文短语（7.2 为「坏灭肇始之时 / 天才少年米提亚登场 /
+千星奇域一起拍拍拍」），插件按原样展示，方便直接复制。
 
 作者: DSH
 """
@@ -19,15 +25,12 @@
 from __future__ import annotations
 
 import asyncio
-import hashlib
 import json
 import os
-import random
 import re
 import time
 from dataclasses import dataclass
-from datetime import date, datetime, timedelta
-from html import unescape
+from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
 
@@ -47,63 +50,20 @@ try:  # pragma: no cover - 依赖 AstrBot 运行时
 except Exception:  # pragma: no cover
     _DATA_ROOT = Path("data")
 
-USER_AGENT = (
-    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
-    "(KHTML, like Gecko) Chrome/124.0 Safari/537.36"
-)
-
-MIYOUSHE_NEWS_URL = "https://api-takumi.miyoushe.com/post/wapi/getNewsList"
-MIYOUSHE_DETAIL_URL = "https://api-takumi.miyoushe.com/post/wapi/getPostFull"
-# 米游社 web 端 DS 签名盐（公开固定值）
-MIYOUSHE_SALT = "xV8v4Qu54lUKrEYFZkJhB8cuOh9Asafs"
+USER_AGENT = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0 Safari/537.36"
 GIFT_URL = "https://ys.mihoyo.com/main/gift"
 
-# 公告标题里出现这些词时优先抓详情
-POST_KEYWORDS = ("兑换码", "前瞻", "直播", "礼包", "福利", "庆典", "活动")
-# 前瞻直播的三条兑换码奖励是多年不变的固定组合
-FORESHADOW_REWARDS = [
-    "原石*100 精锻用魔矿*10",
-    "原石*100 大英雄的经验*5",
-    "原石*100 摩拉*50000",
-]
+# BGI 兑换码仓库（国服 + 国际服混排，需要按标题过滤）
+BGI_CODES_URL = "https://cnb.cool/bettergi/genshin-redeem-code/-/git/raw/main/codes.json"
+# 米游社前瞻直播
+LIVE_POST_LIST_URL = "https://bbs-api.miyoushe.com/post/wapi/getForumPostList"
+LIVE_INDEX_URL = "https://api-takumi.mihoyo.com/event/miyolive/index"
+LIVE_CODE_URL = "https://api-takumi-static.mihoyo.com/event/miyolive/refreshCode"
 
-EXPIRE_PATTERN = re.compile(
-    r"(?:有效期|截止|失效|过期)[^0-9\n]{0,10}(\d{4})\s*[-/.年]\s*(\d{1,2})"
-    r"\s*[-/.月]\s*(\d{1,2})"
-)
-CODE_CHARS = re.compile(r"^[A-Za-z0-9\u4e00-\u9fff·\-]+$")
-CODE_LABEL = re.compile(r"兑换码|礼包码|CDK", re.I)
-BAD_PREFIX = (
-    "有效期",
-    "奖励",
-    "兑换",
-    "点击",
-    "前往",
-    "领取",
-    "活动",
-    "复制",
-    "本次",
-    "版本",
-    "原神",
-    "米游社",
-    "旅行者",
-    "亲爱的",
-)
-# 候选码里出现这些词多半是正文句子，不是兑换码
-BAD_CONTAINS = (
-    "兑换",
-    "领取",
-    "如下",
-    "点击",
-    "前往",
-    "有效期",
-    "奖励",
-    "活动",
-    "复制",
-    "查看",
-    "版本",
-    "旅行者",
-)
+# 条目 / 标题里出现这些词说明是国际服，直接丢弃
+INTL_MARKERS = ("国际服", "[国际]", "国际", "overseas", "global", "os服")
+
+DATE_PATTERN = re.compile(r"(\d{4})\s*[-/.年]\s*(\d{1,2})\s*[-/.月]\s*(\d{1,2})")
 
 
 # --------------------------------------------------------------------------- #
@@ -111,7 +71,7 @@ BAD_CONTAINS = (
 # --------------------------------------------------------------------------- #
 @dataclass
 class RedeemCode:
-    """一条兑换码（同一批公告共享组名 / 有效期）。"""
+    """一条兑换码（同一批公告共享组名 / 有效期 / 奖励）。"""
 
     code: str
     group: str = ""
@@ -153,7 +113,7 @@ class RedeemCode:
 
     def expire_text(self) -> str:
         if not self.expire:
-            return "未知"
+            return "官方未注明"
         return f"{self.expire.year:04d}-{self.expire.month:02d}-{self.expire.day:02d}"
 
 
@@ -163,7 +123,7 @@ class RedeemCode:
 @register(
     PLUGIN_NAME,
     "DSH",
-    "原神（国服）兑换码：/yscd 查询并自动订阅新码推送，只取米游社国服公告",
+    "原神（国服）兑换码：/yscd 查询并自动订阅新码推送，只取国服数据",
     "1.0.0",
 )
 class GenshinCodesPlugin(Star):
@@ -253,16 +213,13 @@ class GenshinCodesPlugin(Star):
             yield event.plain_result("❌ 查询出错了，请稍后再试或联系管理员查看日志。")
 
     # ------------------------------------------------------------------ #
-    # 网络与数据源
+    # 网络
     # ------------------------------------------------------------------ #
     def _build_client(self) -> httpx.AsyncClient:
         kwargs: dict[str, Any] = {
             "timeout": httpx.Timeout(self._cfg_int("http_timeout", 15)),
             "follow_redirects": True,
-            "headers": {
-                "User-Agent": USER_AGENT,
-                "Accept": "application/json, text/plain, */*",
-            },
+            "headers": {"User-Agent": USER_AGENT, "Accept": "application/json, */*"},
         }
         proxy = str(self.config.get("proxy", "") or "").strip()
         if proxy:
@@ -272,22 +229,191 @@ class GenshinCodesPlugin(Star):
                 return httpx.AsyncClient(proxies=proxy, **kwargs)
         return httpx.AsyncClient(**kwargs)
 
+    async def _get_json(
+        self, client: httpx.AsyncClient, url: str, **kwargs: Any
+    ) -> Any:
+        resp = await client.get(url, **kwargs)
+        resp.raise_for_status()
+        return resp.json()
+
+    # ------------------------------------------------------------------ #
+    # 数据源 1：BGI 兑换码仓库
+    # ------------------------------------------------------------------ #
+    async def _fetch_bgi_groups(
+        self, client: httpx.AsyncClient
+    ) -> tuple[list[dict[str, Any]], int]:
+        data = await self._get_json(client, BGI_CODES_URL)
+        if not isinstance(data, list):
+            raise ValueError("BGI 接口返回格式不是数组")
+
+        groups: list[dict[str, Any]] = []
+        expired = 0
+        today = date.today()
+        for item in data:
+            if not isinstance(item, dict):
+                continue
+            title = str(item.get("title") or "").strip()
+            codes = [str(c).strip() for c in (item.get("codes") or []) if str(c).strip()]
+            if not codes:
+                continue
+            if self._is_international(title, codes):
+                logger.debug(f"[{PLUGIN_NAME}] 跳过国际服条目：{title}")
+                continue
+            expire = self._parse_date(str(item.get("valid") or ""))
+            if expire and expire < today:
+                expired += 1
+                continue
+            groups.append(
+                {
+                    "title": self._normalize_title(title),
+                    "expire": expire,
+                    "codes": codes,
+                    "rewards": self._split_rewards(str(item.get("content") or "")),
+                    "source": "BetterGI（BGI）",
+                }
+            )
+        logger.info(f"[{PLUGIN_NAME}] BGI 国服有效兑换码分组 {len(groups)} 个")
+        return groups, expired
+
     @staticmethod
-    def _ds_headers(query: str) -> dict[str, str]:
-        """米游社 web 端 DS 签名；部分接口不带 DS 会返回 403。"""
-        t = str(int(time.time()))
-        r = str(random.randint(100000, 200000))
-        raw = f"salt={MIYOUSHE_SALT}&t={t}&r={r}&b=&q={query}"
-        ds = hashlib.md5(raw.encode("utf-8")).hexdigest()
+    def _is_international(title: str, codes: list[str]) -> bool:
+        low = title.lower()
+        if any(marker in low for marker in INTL_MARKERS):
+            return True
+        # 兜底：整组全是纯英文码且标题没有国服特征时，按国际服处理
+        if codes and all(re.fullmatch(r"[A-Za-z]+", c) for c in codes):
+            if not any(k in title for k in ("国服", "中文")):
+                return True
+        return False
+
+    @staticmethod
+    def _normalize_title(title: str) -> str:
+        if "前瞻" in title or "直播" in title:
+            return "官方前瞻直播兑换码"
+        return title or "兑换码"
+
+    @staticmethod
+    def _split_rewards(content: str) -> list[str]:
+        content = content.strip()
+        if not content:
+            return []
+        parts = re.split(r"\s*[+；;]\s*", content)
+        return [p.strip() for p in parts if p.strip()]
+
+    # ------------------------------------------------------------------ #
+    # 数据源 2：米游社官方前瞻直播（miyolive）
+    # ------------------------------------------------------------------ #
+    async def _fetch_live_group(
+        self, client: httpx.AsyncClient
+    ) -> dict[str, Any] | None:
+        act_id = await self._find_live_act_id(client)
+        if not act_id:
+            logger.debug(f"[{PLUGIN_NAME}] 未找到当前前瞻直播 act_id")
+            return None
+
+        headers = {
+            "x-rpc-act_id": act_id,
+            "Referer": "https://www.miyoushe.com/ys/",
+            "User-Agent": USER_AGENT,
+        }
+        index = await self._get_json(client, LIVE_INDEX_URL, headers=headers)
+        if index.get("retcode") != 0:
+            logger.debug(f"[{PLUGIN_NAME}] miyolive/index retcode={index.get('retcode')}")
+            return None
+        live = (index.get("data") or {}).get("live") or {}
+        start_text = str(live.get("start") or "").strip()
+        start_ms = self._parse_datetime(start_text)
+        if not start_ms:
+            return None
+        if time.time() * 1000 - start_ms > 7 * 24 * 3600 * 1000:
+            logger.debug(f"[{PLUGIN_NAME}] 当前前瞻直播已结束超过 7 天")
+            return None
+        code_ver = str(live.get("code_ver") or "").strip()
+        if not code_ver:
+            return None
+
+        payload = await self._get_json(
+            client,
+            LIVE_CODE_URL,
+            params={"version": code_ver, "time": int(time.time() * 1000)},
+            headers=headers,
+        )
+        if payload.get("retcode") != 0:
+            logger.debug(f"[{PLUGIN_NAME}] refreshCode retcode={payload.get('retcode')}")
+            return None
+
+        now = time.time()
+        codes: list[str] = []
+        rewards: list[str] = []
+        for item in (payload.get("data") or {}).get("code_list") or []:
+            code = str(item.get("code") or "").strip()
+            if not code:
+                continue
+            try:
+                if float(item.get("to_get_time") or 0) > now + 120:
+                    continue
+            except (TypeError, ValueError):
+                pass
+            codes.append(code)
+            reward = self._strip_html(str(item.get("title") or ""))
+            if reward:
+                rewards.append(reward)
+        if not codes:
+            logger.debug(f"[{PLUGIN_NAME}] 官方直播兑换码尚未生成")
+            return None
+
+        expire = datetime.fromtimestamp(start_ms / 1000).date() + timedelta(days=3)
+        logger.info(f"[{PLUGIN_NAME}] 米游社直播源解析到 {len(codes)} 个前瞻兑换码")
         return {
-            "DS": f"{t},{r},{ds}",
-            "x-rpc-app_version": "2.71.1",
-            "x-rpc-client_type": "5",
-            "x-rpc-language": "zh-cn",
-            "Referer": "https://app.mihoyo.com",
-            "Origin": "https://app.mihoyo.com",
+            "title": "官方前瞻直播兑换码",
+            "expire": expire,
+            "codes": codes,
+            "rewards": rewards,
+            "source": "米游社官方前瞻直播",
         }
 
+    async def _find_live_act_id(self, client: httpx.AsyncClient) -> str:
+        headers = {"Referer": "https://www.miyoushe.com/ys/", "User-Agent": USER_AGENT}
+        seen: set[str] = set()
+        posts: list[dict[str, Any]] = []
+        for sort_type in (2, 1):
+            try:
+                payload = await self._get_json(
+                    client,
+                    LIVE_POST_LIST_URL,
+                    params={
+                        "forum_id": 28,
+                        "is_good": "false",
+                        "is_hot": "false",
+                        "page_size": 20,
+                        "sort_type": sort_type,
+                    },
+                    headers=headers,
+                )
+            except Exception as exc:  # noqa: BLE001
+                logger.debug(f"[{PLUGIN_NAME}] 前瞻帖列表失败: {exc}")
+                continue
+            for row in (payload.get("data") or {}).get("list") or []:
+                post = row.get("post") or {}
+                post_id = str(post.get("post_id") or "")
+                if not post_id or post_id in seen:
+                    continue
+                seen.add(post_id)
+                posts.append(post)
+
+        for post in posts:
+            subject = str(post.get("subject") or "")
+            if not ("前瞻" in subject or "直播" in subject):
+                continue
+            text = f"{post.get('structured_content') or ''}\n{post.get('content') or ''}"
+            match = re.search(r"act_id=([A-Za-z0-9]+)", text)
+            if match:
+                return match.group(1)
+        return ""
+
+    # ------------------------------------------------------------------ #
+    # 抓取 / 入库 / 推送
+    # ------------------------------------------------------------------ #
     async def _get_codes(self, max_age_seconds: int | None = None) -> list[RedeemCode]:
         max_age = (
             max_age_seconds
@@ -302,25 +428,46 @@ class GenshinCodesPlugin(Star):
         return self._stored_codes()
 
     async def _refresh(self, notify: bool = True) -> list[RedeemCode]:
-        """拉取数据源 → 入库 → 按需推送新码。"""
         async with self._refresh_lock:
             client = self._client or self._build_client()
             self._client = client
 
             groups: list[dict[str, Any]] = []
-            if self._cfg_bool("enable_miyoushe_source", True):
+            expired_hidden = 0
+
+            if self._cfg_bool("enable_bgi_source", True):
                 try:
-                    groups = await self._fetch_miyoushe_groups(client)
+                    bgi_groups, expired_hidden = await self._fetch_bgi_groups(client)
+                    groups.extend(bgi_groups)
                 except Exception as exc:  # noqa: BLE001
-                    logger.warning(f"[{PLUGIN_NAME}] 米游社公告拉取失败: {exc}")
+                    logger.warning(f"[{PLUGIN_NAME}] BGI 兑换码源失败: {exc}")
+
+            if self._cfg_bool("enable_live_source", True):
+                try:
+                    live = await self._fetch_live_group(client)
+                    if live:
+                        existing = {c for g in groups for c in g["codes"]}
+                        extra = [c for c in live["codes"] if c not in existing]
+                        if extra:
+                            # 奖励要和留下的码对齐，避免错位/重复
+                            rewards = [
+                                live["rewards"][i]
+                                for i, c in enumerate(live["codes"])
+                                if c in extra and i < len(live.get("rewards") or [])
+                            ]
+                            groups.append({**live, "codes": extra, "rewards": rewards})
+                except Exception as exc:  # noqa: BLE001
+                    logger.debug(f"[{PLUGIN_NAME}] 米游社直播源失败: {exc}")
+
             groups.extend(self._parse_manual_groups())
 
             if not groups and not self._stored_codes():
                 logger.warning(f"[{PLUGIN_NAME}] 所有数据源都没有拿到兑换码")
                 return []
 
-            self._upsert(groups)
+            self._sync(groups)
             self.state["last_refresh"] = time.time()
+            self.state["expired_hidden"] = expired_hidden + self._expired_stored_count()
             if not self.state.get("initialized", False):
                 self._mark_all_pushed()  # 首次运行只入库，不刷屏历史码
                 self.state["initialized"] = True
@@ -332,291 +479,46 @@ class GenshinCodesPlugin(Star):
                 self._save_state()
             return self._stored_codes()
 
-    async def _fetch_miyoushe_groups(
-        self, client: httpx.AsyncClient
-    ) -> list[dict[str, Any]]:
-        matched: list[dict[str, Any]] = []
-        others: list[dict[str, Any]] = []
-        seen_ids: set[str] = set()
-        for news_type in (1, 2, 3):  # 1=活动公告 2=游戏公告 3=资讯
-            try:
-                resp = await client.get(
-                    MIYOUSHE_NEWS_URL,
-                    params={"gids": 2, "page_size": 20, "type": news_type},
-                )
-                resp.raise_for_status()
-                payload = resp.json()
-            except Exception as exc:  # noqa: BLE001
-                logger.debug(f"[{PLUGIN_NAME}] 米游社列表 type={news_type} 失败: {exc}")
-                continue
-            for item in (payload.get("data") or {}).get("list") or []:
-                post = item.get("post") or {}
-                post_id = str(post.get("post_id") or "")
-                subject = str(post.get("subject") or "")
-                if not post_id or not subject or post_id in seen_ids:
-                    continue
-                seen_ids.add(post_id)
-                info = {"id": post_id, "subject": subject}
-                if any(k in subject for k in POST_KEYWORDS):
-                    matched.append(info)
-                else:
-                    others.append(info)
-
-        # 有关键词的优先；再用最近公告补位，避免标题没写「兑换码」的活动被漏掉
-        scan_limit = max(1, self._cfg_int("scan_posts_per_round", 6))
-        posts = (matched + others)[:scan_limit]
-        groups: list[dict[str, Any]] = []
-        for post in posts:
-            try:
-                text = await self._fetch_post_detail(client, post["id"])
-            except Exception as exc:  # noqa: BLE001
-                logger.debug(f"[{PLUGIN_NAME}] 公告 {post['id']} 详情失败: {exc}")
-                continue
-            if not text:
-                continue
-            codes = self._extract_codes(text)
-            if not codes:
-                logger.debug(
-                    f"[{PLUGIN_NAME}] 公告《{post['subject'][:16]}》未解析到兑换码"
-                )
-                continue
-            expire = self._extract_expire(text)
-            title = self._group_title(post["subject"])
-            rewards = self._extract_rewards(text, len(codes))
-            if (
-                not rewards
-                and title == "官方前瞻直播兑换码"
-                and len(codes) == len(FORESHADOW_REWARDS)
-                and self._cfg_bool("foreshadow_reward_template", True)
-            ):
-                rewards = list(FORESHADOW_REWARDS)
-            groups.append(
-                {
-                    "title": title,
-                    "expire": expire,
-                    "codes": codes,
-                    "rewards": rewards,
-                    "source": "米游社官方公告",
-                }
-            )
-            logger.info(
-                f"[{PLUGIN_NAME}] 公告《{title}》解析到 {len(codes)} 个兑换码"
-            )
-        return groups
-
-    async def _fetch_post_detail(
-        self, client: httpx.AsyncClient, post_id: str
-    ) -> str | None:
-        params = {"post_id": post_id, "read": 1}
-        query = "&".join(f"{k}={params[k]}" for k in sorted(params))
-        # 先直接请求；被风控（403）时再带 DS 签名重试
-        resp = await client.get(MIYOUSHE_DETAIL_URL, params=params)
-        if resp.status_code in (401, 403):
-            resp = await client.get(
-                MIYOUSHE_DETAIL_URL, params=params, headers=self._ds_headers(query)
-            )
-        if resp.status_code in (401, 403):
-            logger.debug(
-                f"[{PLUGIN_NAME}] 公告 {post_id} 被风控拒绝（401/403），"
-                "如持续出现请检查网络环境或改用代理"
-            )
-            return None
-        resp.raise_for_status()
-        body = resp.json().get("data") or {}
-        post = body.get("post") or {}
-        inner = post.get("post") or post
-        content = str(inner.get("content") or inner.get("structured_content") or "")
-        if not content:
-            return None
-        return self._html_to_text(content)
-
-    # ------------------------------------------------------------------ #
-    # 文本解析
-    # ------------------------------------------------------------------ #
-    @staticmethod
-    def _html_to_text(html: str) -> str:
-        text = re.sub(r"<br\s*/?>", "\n", html, flags=re.I)
-        text = re.sub(r"</(p|div|li|h\d|tr)>", "\n", text, flags=re.I)
-        text = re.sub(r"<[^>]+>", "", text)
-        text = unescape(text)
-        text = text.replace("\u00a0", " ").replace("\u3000", " ")
-        text = re.sub(r"[ \t]+", " ", text)
-        text = re.sub(r"\n{2,}", "\n", text)
-        return text.strip()
-
-    @staticmethod
-    def _looks_like_code(token: str) -> bool:
-        token = token.strip().strip("：:·.。")
-        if not token or len(token) < 2 or len(token) > 24:
-            return False
-        if token.startswith(BAD_PREFIX) or token.startswith("※"):
-            return False
-        if any(word in token for word in BAD_CONTAINS):
-            return False
-        if token.isdigit():
-            return False
-        if not CODE_CHARS.fullmatch(token):
-            return False
-        # 纯英文数字的旧式兑换码至少要 6 位且含字母，避免误判
-        if re.fullmatch(r"[A-Za-z0-9\-]+", token):
-            return bool(re.search(r"[A-Za-z]", token)) and len(token) >= 6
-        return True
-
-    def _extract_codes(self, text: str) -> list[str]:
-        """从公告正文提取兑换码：支持中文短语码（7.x 国服）与英文码（旧版）。"""
-        found: list[str] = []
-
-        def add(token: str) -> None:
-            token = token.strip().strip("：:·.。，,；;")
-            if token and token not in found and self._looks_like_code(token):
-                found.append(token)
-
-        lines = [ln.strip() for ln in text.split("\n")]
-        for idx, line in enumerate(lines):
-            if not CODE_LABEL.search(line):
-                continue
-            # 行内写法：兑换码1：XXXX / 兑换码：XXXX、YYYY
-            rest = CODE_LABEL.sub("", line)
-            rest = re.sub(r"^\s*[0-9一二三四五六七八九十]+\s*[：:、.]?", "", rest)
-            rest = rest.lstrip("：:，,、 ")
-            for part in re.split(r"[、，,；;/\s]+", rest):
-                add(part)
-
-            # 后续若干行是纯兑换码
-            blank_run = 0
-            for nxt in lines[idx + 1 : idx + 7]:
-                if not nxt:
-                    blank_run += 1
-                    if blank_run >= 2:
-                        break
-                    continue
-                if CODE_LABEL.search(nxt) or re.search(r"有效期|奖励|截止|失效|※|【", nxt):
-                    break
-                if self._looks_like_code(nxt):
-                    add(nxt)
-                    blank_run = 0
-                else:
-                    break
-            if len(found) >= 8:
-                break
-        return found[:8]
-
-    @staticmethod
-    def _extract_expire(text: str) -> date | None:
-        match = EXPIRE_PATTERN.search(text)
-        if not match:
-            return None
-        try:
-            return date(int(match.group(1)), int(match.group(2)), int(match.group(3)))
-        except ValueError:
-            return None
-
-    @staticmethod
-    def _extract_rewards(text: str, count: int) -> list[str]:
-        rewards: list[str] = []
-        for line in text.split("\n"):
-            line = line.strip()
-            if not line.startswith(("奖励", "活动奖励", "礼包内容")):
-                continue
-            body = re.sub(r"^(奖励|活动奖励|礼包内容)\s*[：:]?", "", line)
-            for part in re.split(r"[；;、]", body):
-                part = part.strip()
-                if part and part not in rewards:
-                    rewards.append(part)
-            if rewards:
-                break
-        return rewards[: max(count, 1)]
-
-    @staticmethod
-    def _group_title(subject: str) -> str:
-        if "前瞻" in subject or "直播" in subject:
-            return "官方前瞻直播兑换码"
-        # 优先取书名号/引号里的活动名，如「旧友的祝福」网页活动 → 旧友的祝福
-        match = re.search(r"[「《【]([^」》】]{2,20})[」》】]", subject)
-        if match:
-            return match.group(1)
-        title = re.sub(r"[《》「」【】]", "", subject).strip()
-        title = re.sub(r"^\d+(\.\d+)?版本", "", title)
-        return (title or "官方公告兑换码")[:18]
-
-    def _parse_manual_groups(self) -> list[dict[str, Any]]:
-        """配置里的补录兑换码，每行：标题|有效期(YYYY-MM-DD)|兑换码|奖励(可选)。"""
-        raw = str(self.config.get("manual_codes", "") or "").strip()
-        if not raw:
-            return []
-        groups: dict[str, dict[str, Any]] = {}
-        for line in raw.splitlines():
-            line = line.strip()
-            if not line or line.startswith("#"):
-                continue
-            parts = [p.strip() for p in line.split("|")]
-            if len(parts) < 3:
-                continue
-            title, expire_raw, code = parts[0], parts[1], parts[2]
-            reward = parts[3] if len(parts) > 3 else ""
-            expire = None
-            try:
-                expire = date.fromisoformat(expire_raw)
-            except ValueError:
-                expire = None
-            group = groups.setdefault(
-                title,
-                {
-                    "title": title,
-                    "expire": expire,
-                    "codes": [],
-                    "rewards": [],
-                    "source": "手动配置",
-                },
-            )
-            group["codes"].append(code)
-            if reward:
-                group["rewards"].append(reward)
-        return list(groups.values())
-
-    # ------------------------------------------------------------------ #
-    # 入库 / 查询 / 推送
-    # ------------------------------------------------------------------ #
-    def _upsert(self, groups: list[dict[str, Any]]) -> None:
+    def _sync(self, groups: list[dict[str, Any]]) -> None:
+        """把本轮结果同步进状态：新码入库，消失的码（源里没了）清掉。"""
         store: dict[str, Any] = self.state.setdefault("codes", {})
         now = time.time()
+        fresh: dict[str, dict[str, Any]] = {}
         for group in groups:
             codes: list[str] = group.get("codes") or []
             rewards: list[str] = group.get("rewards") or []
             for i, code in enumerate(codes):
-                reward = rewards[i] if i < len(rewards) else ""
                 entry = {
                     "code": code,
                     "group": group.get("title") or "",
                     "expire": (
                         group["expire"].isoformat() if group.get("expire") else ""
                     ),
-                    "reward": reward,
+                    "reward": rewards[i] if i < len(rewards) else "",
                     "source": group.get("source") or "",
                 }
-                old = store.get(code)
-                if old is None:
-                    store[code] = {**entry, "first_seen": now, "pushed": False}
-                    continue
-                if not entry["expire"] and old.get("expire"):
-                    entry["expire"] = old["expire"]
-                if not entry["reward"] and old.get("reward"):
-                    entry["reward"] = old["reward"]
-                old.update(entry)
-                old.setdefault("first_seen", now)
-        self._prune()
+                fresh[code] = entry
 
-    def _prune(self) -> None:
-        """清掉过期超过 30 天的记录，避免状态文件无限增长。"""
-        store: dict[str, Any] = self.state.get("codes") or {}
-        cutoff = date.today() - timedelta(days=30)
-        for key in [
-            k
-            for k, v in store.items()
-            if v.get("expire") and date.fromisoformat(v["expire"]) < cutoff
-        ]:
-            store.pop(key, None)
+        for code, entry in fresh.items():
+            old = store.get(code)
+            if old is None:
+                store[code] = {**entry, "first_seen": now, "pushed": False}
+                continue
+            if not entry["expire"] and old.get("expire"):
+                entry["expire"] = old["expire"]
+            if not entry["reward"] and old.get("reward"):
+                entry["reward"] = old["reward"]
+            entry["pushed"] = bool(old.get("pushed", False))
+            entry["first_seen"] = old.get("first_seen", now)
+            store[code] = entry
 
+        # 数据源里已经不再出现的码（下线/换新）不要继续展示
+        for code in [c for c in store if c not in fresh]:
+            store.pop(code, None)
+
+    # ------------------------------------------------------------------ #
+    # 状态读写
+    # ------------------------------------------------------------------ #
     def _mark_all_pushed(self) -> None:
         for entry in (self.state.get("codes") or {}).values():
             entry["pushed"] = True
@@ -637,11 +539,22 @@ class GenshinCodesPlugin(Star):
         ]
         return [c for c in codes if not c.is_expired()]
 
+    def _expired_stored_count(self) -> int:
+        today = date.today()
+        return sum(
+            1
+            for v in (self.state.get("codes") or {}).values()
+            if v.get("expire") and date.fromisoformat(v["expire"]) < today
+        )
+
+    # ------------------------------------------------------------------ #
+    # 推送
+    # ------------------------------------------------------------------ #
     async def _broadcast(self, new_codes: list[RedeemCode]) -> None:
         subs: dict[str, Any] = self.state.get("subs") or {}
         if subs:
             limit = max(1, self._cfg_int("max_push_codes", 6))
-            message = self._render_list(new_codes[:limit], header="原神兑换码（新）")
+            message = self._render_list(new_codes[:limit], header="原神新兑换码")
             dead: list[str] = []
             for key, record in list(subs.items()):
                 try:
@@ -677,7 +590,7 @@ class GenshinCodesPlugin(Star):
     def _render_group(self, codes: list[RedeemCode]) -> str:
         first = codes[0]
         lines = [f"【{first.group or '兑换码'}】", f"有效期至：{first.expire_text()}"]
-        rewards = [c.reward for c in codes if c.reward]
+        rewards = list(dict.fromkeys(c.reward for c in codes if c.reward))
         if rewards:
             lines.append("奖励：" + "；".join(rewards))
         if len(codes) == 1:
@@ -689,43 +602,33 @@ class GenshinCodesPlugin(Star):
                 lines.append(c.code)
         return "\n".join(lines)
 
-    def _render_list(
-        self, codes: list[RedeemCode], header: str = "原神兑换码"
-    ) -> str:
+    def _render_list(self, codes: list[RedeemCode], header: str = "原神兑换码") -> str:
         if not codes:
             return "⚠️ 暂时没有获取到有效的国服兑换码，请稍后再试。"
 
-        # 按公告分组，按有效期排序
         grouped: dict[str, list[RedeemCode]] = {}
         for c in codes:
             grouped.setdefault(c.group or "兑换码", []).append(c)
         groups = list(grouped.values())
-        groups.sort(key=lambda g: g[0].expire or date.max)
 
-        updated = datetime.fromtimestamp(
-            float(self.state.get("last_refresh") or time.time())
-        ).strftime("%Y-%m-%d %H:%M:%S")
         parts = [header]
         if header == "原神兑换码":
-            parts.append(f"缓存更新：{updated}")
+            parts.append(f"缓存更新：{self._update_text()}")
         parts.extend(self._render_group(g) for g in groups)
 
-        sources = (
-            "、".join(dict.fromkeys(c.source for c in codes if c.source))
-            or "米游社官方公告"
-        )
+        sources = "、".join(dict.fromkeys(c.source for c in codes if c.source))
         parts.append("")
-        parts.append(f"数据来源：{sources}")
-        parts.append(f"已隐藏 {self._expired_count()} 条过期兑换码。")
+        parts.append(f"数据来源：{sources or 'BetterGI（BGI）'}")
+        parts.append(f"已隐藏 {self._hidden_count()} 条过期兑换码。")
         return "\n".join(parts)
 
-    def _expired_count(self) -> int:
-        today = date.today()
-        return sum(
-            1
-            for v in (self.state.get("codes") or {}).values()
-            if v.get("expire") and date.fromisoformat(v["expire"]) < today
-        )
+    def _update_text(self) -> str:
+        ts = float(self.state.get("last_refresh") or 0)
+        when = datetime.fromtimestamp(ts) if ts else datetime.now()
+        return when.strftime("%Y-%m-%d %H:%M:%S")
+
+    def _hidden_count(self) -> int:
+        return int(self.state.get("expired_hidden") or 0)
 
     def _help_text(self) -> str:
         return (
@@ -743,6 +646,77 @@ class GenshinCodesPlugin(Star):
         text = (getattr(event, "message_str", "") or "").strip()
         parts = text.split(None, 1)
         return parts[1].strip().lower() if len(parts) > 1 else ""
+
+    # ------------------------------------------------------------------ #
+    # 手工补录 / 工具函数
+    # ------------------------------------------------------------------ #
+    def _parse_manual_groups(self) -> list[dict[str, Any]]:
+        """配置里的补录兑换码，每行：标题|有效期(YYYY-MM-DD)|兑换码|奖励(可选)。"""
+        raw = str(self.config.get("manual_codes", "") or "").strip()
+        if not raw:
+            return []
+        groups: dict[str, dict[str, Any]] = {}
+        for line in raw.splitlines():
+            line = line.strip()
+            if not line or line.startswith("#"):
+                continue
+            parts = [p.strip() for p in line.split("|")]
+            if len(parts) < 3:
+                continue
+            title, expire_raw, code = parts[0], parts[1], parts[2]
+            reward = parts[3] if len(parts) > 3 else ""
+            group = groups.setdefault(
+                title,
+                {
+                    "title": title,
+                    "expire": self._parse_date(expire_raw),
+                    "codes": [],
+                    "rewards": [],
+                    "source": "手动配置",
+                },
+            )
+            group["codes"].append(code)
+            if reward:
+                group["rewards"].append(reward)
+        return list(groups.values())
+
+    @staticmethod
+    def _parse_date(text: str) -> date | None:
+        match = DATE_PATTERN.search(text or "")
+        if not match:
+            return None
+        try:
+            return date(int(match.group(1)), int(match.group(2)), int(match.group(3)))
+        except ValueError:
+            return None
+
+    @staticmethod
+    def _parse_datetime(text: str) -> int:
+        """把米游社返回的「2026-10-23 20:00:00」（东八区）转成毫秒时间戳。"""
+        match = re.match(
+            r"(\d{4})-(\d{2})-(\d{2})[ T](\d{2}):(\d{2})(?::(\d{2}))?", text
+        )
+        if not match:
+            return 0
+        try:
+            dt = datetime(
+                int(match.group(1)),
+                int(match.group(2)),
+                int(match.group(3)),
+                int(match.group(4)),
+                int(match.group(5)),
+                int(match.group(6) or 0),
+                tzinfo=timezone(timedelta(hours=8)),
+            )
+        except ValueError:
+            return 0
+        return int(dt.timestamp() * 1000)
+
+    @staticmethod
+    def _strip_html(value: str) -> str:
+        text = re.sub(r"<br\s*/?>", "\n", value)
+        text = re.sub(r"<[^>]+>", "", text)
+        return text.replace("&nbsp;", " ").strip()
 
     # ------------------------------------------------------------------ #
     # 订阅

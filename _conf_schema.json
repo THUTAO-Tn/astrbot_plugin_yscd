@@ -1,8 +1,14 @@
 {
-  "enable_miyoushe_source": {
-    "description": "启用米游社国服公告数据源",
+  "enable_bgi_source": {
+    "description": "启用 BGI 兑换码源（推荐）",
     "type": "bool",
-    "hint": "从米游社国服官方公告/前瞻直播资讯里解析兑换码。国服兑换码常为中文短语，国际服的英文码不会被采用。",
+    "hint": "BetterGI 维护的 codes.json（cnb.cool）。该文件含国服与国际服条目，插件会自动过滤掉标了「[国际服]」的英文码。",
+    "default": true
+  },
+  "enable_live_source": {
+    "description": "启用米游社官方前瞻直播源",
+    "type": "bool",
+    "hint": "从米游社前瞻直播页（miyolive）直接取官方兑换码与奖励，作为 BGI 源的补充；失败不影响其它源。",
     "default": true
   },
   "enable_auto_push": {
@@ -17,28 +23,11 @@
     "hint": "开启时，用户发送一次 /yscd 就自动订阅新兑换码推送（群聊直接把消息发到群里，不会 @ 所有人）。",
     "default": true
   },
-  "foreshadow_reward_template": {
-    "description": "前瞻直播奖励使用固定模板",
-    "type": "bool",
-    "hint": "官方前瞻直播一直是「100原石+精锻用魔矿」「100原石+大英雄的经验」「100原石+摩拉」，公告没写奖励时按此模板补全。",
-    "default": true
-  },
   "manual_codes": {
     "description": "手动补录兑换码",
     "type": "text",
-    "hint": "每行一条，格式：标题|有效期(YYYY-MM-DD)|兑换码|奖励。例：官方前瞻直播兑换码|2026-10-26|千星奇域一起拍拍拍|原石*100 精锻用魔矿*10。公告解析不到时用来兜底。",
+    "hint": "每行一条，格式：标题|有效期(YYYY-MM-DD)|兑换码|奖励。例：官方前瞻直播兑换码|2026-10-26|千星奇域一起拍拍拍|原石*100 精锻用魔矿*10。",
     "default": ""
-  },
-  "scan_posts_per_round": {
-    "description": "每轮最多抓取几篇公告详情",
-    "type": "int",
-    "hint": "标题含「兑换码/前瞻/直播/礼包/活动」的公告优先，其余用最近公告补位。数量越大越全，但请求也越多。",
-    "default": 6,
-    "slider": {
-      "min": 1,
-      "max": 20,
-      "step": 1
-    }
   },
   "fetch_interval_minutes": {
     "description": "轮询间隔（分钟）",
@@ -85,7 +74,7 @@
   "proxy": {
     "description": "HTTP 代理（可选）",
     "type": "string",
-    "hint": "如 http://127.0.0.1:7890。米游社接口在国内通常直连即可，留空表示不使用代理。",
+    "hint": "如 http://127.0.0.1:7890。国内直连即可，留空表示不使用代理。",
     "default": ""
   }
 }
