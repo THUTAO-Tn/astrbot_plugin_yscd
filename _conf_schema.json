@@ -1,14 +1,8 @@
 {
   "enable_miyoushe_source": {
-    "description": "启用米游社官方公告数据源",
+    "description": "启用米游社国服公告数据源",
     "type": "bool",
-    "hint": "抓取米游社国服官方公告，解析前瞻直播/活动公告里的兑换码和有效期。国内网络推荐开启。",
-    "default": true
-  },
-  "enable_ennead_source": {
-    "description": "启用社区聚合数据源",
-    "type": "bool",
-    "hint": "BetterGI 等工具常用的兑换码聚合接口，用于补全兑换码与奖励信息。米游社源不可用时可作为兜底。",
+    "hint": "从米游社国服官方公告/前瞻直播资讯里解析兑换码。国服兑换码常为中文短语，国际服的英文码不会被采用。",
     "default": true
   },
   "enable_auto_push": {
@@ -20,8 +14,31 @@
   "auto_subscribe": {
     "description": "查询后自动订阅推送",
     "type": "bool",
-    "hint": "开启时，用户发送一次 /yscd 就自动订阅新兑换码推送（群聊会直接把消息发到群里，不会 @ 所有人）。",
+    "hint": "开启时，用户发送一次 /yscd 就自动订阅新兑换码推送（群聊直接把消息发到群里，不会 @ 所有人）。",
     "default": true
+  },
+  "foreshadow_reward_template": {
+    "description": "前瞻直播奖励使用固定模板",
+    "type": "bool",
+    "hint": "官方前瞻直播一直是「100原石+精锻用魔矿」「100原石+大英雄的经验」「100原石+摩拉」，公告没写奖励时按此模板补全。",
+    "default": true
+  },
+  "manual_codes": {
+    "description": "手动补录兑换码",
+    "type": "text",
+    "hint": "每行一条，格式：标题|有效期(YYYY-MM-DD)|兑换码|奖励。例：官方前瞻直播兑换码|2026-10-26|千星奇域一起拍拍拍|原石*100 精锻用魔矿*10。公告解析不到时用来兜底。",
+    "default": ""
+  },
+  "scan_posts_per_round": {
+    "description": "每轮最多抓取几篇公告详情",
+    "type": "int",
+    "hint": "标题含「兑换码/前瞻/直播/礼包/活动」的公告优先，其余用最近公告补位。数量越大越全，但请求也越多。",
+    "default": 6,
+    "slider": {
+      "min": 1,
+      "max": 20,
+      "step": 1
+    }
   },
   "fetch_interval_minutes": {
     "description": "轮询间隔（分钟）",
@@ -45,32 +62,15 @@
       "step": 1
     }
   },
-  "max_codes_display": {
-    "description": "单次最多展示的兑换码数量",
-    "type": "int",
-    "default": 12,
-    "slider": {
-      "min": 1,
-      "max": 30,
-      "step": 1
-    }
-  },
   "max_push_codes": {
     "description": "单次推送最多包含的新兑换码数量",
     "type": "int",
-    "hint": "一次出现很多新码时，只推送前几个，其余提示用户发送 /yscd 查看。",
-    "default": 5,
+    "default": 6,
     "slider": {
       "min": 1,
       "max": 20,
       "step": 1
     }
-  },
-  "use_code_block": {
-    "description": "兑换码使用 Markdown 代码块",
-    "type": "bool",
-    "hint": "在支持 Markdown 的平台（QQ 官方机器人 Markdown、Telegram 等）上，代码块可点击复制；普通文本平台建议关闭。",
-    "default": false
   },
   "http_timeout": {
     "description": "HTTP 请求超时（秒）",
