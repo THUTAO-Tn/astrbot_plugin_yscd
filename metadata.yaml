@@ -2,7 +2,7 @@ name: astrbot_plugin_yscd
 display_name: 原神兑换码
 short_desc: 原神国服兑换码查询 + 新码自动推送
 desc: 查询原神（国服）兑换码：只取米游社国服官方公告/前瞻直播资讯，支持中文短语码；出现新码主动推送到用过 /yscd 的会话，群聊不 @ 所有人。
-version: v1.0.1
+version: v1.1.0
 author: DSH
 repo: https://github.com/your-name/astrbot_plugin_yscd
 astrbot_version: ">=4.0.0"
